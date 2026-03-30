@@ -81,6 +81,7 @@
       .columns-area { flex-direction: row-reverse; }
     }
 
+
     .col-outer {
       flex: 1 1 0;
       display: flex;
@@ -151,6 +152,25 @@
     }
     footer a:hover { color: var(--active); }
     .footer-github { display: flex; align-items: center; }
+
+    /* ── mobile: single continuous scroll ───────── */
+    #mobile-view {
+      display: none;
+      flex: 1 1 0;
+      min-height: 0;
+      position: relative; /* SVG medallion anchors here */
+    }
+    #mobile-scroll {
+      position: absolute; inset: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+    }
+    #mobile-canvas { position: relative; }
+    @media (max-width: 768px) {
+      .columns-area { display: none !important; }
+      #mobile-view  { display: block; }
+    }
   </style>
 </head>
 <body>
@@ -179,6 +199,10 @@
     </div>
   </div>
 
+  <div id="mobile-view">
+    <div id="mobile-scroll"><div id="mobile-canvas"></div></div>
+  </div>
+
   <footer>
     <a href="https://quran.gtaf.org/1/2/tafsir" target="_blank" rel="noreferrer">Tafsir Ibn Kathir &middot; Al-Fatihah 1:2</a>
     <span>quran.gtaf.org</span>
@@ -199,11 +223,12 @@
     const MIN_SLOT_W = 36;
 
     // ── Arabic word display ───────────────────────────────────
-    const ARABIC_FONT_SIZE   = 100;    // px — size of the SVG Arabic text
-    const ARABIC_FONT_WEIGHT = 700;   // 400 = regular, 700 = bold
-    const ARABIC_GAP         = 18;    // px — breathing room between glyph and prose
-    const WORD_VERTICAL_POS  = 0.5;   // 0–1 — vertical position within the column scroll area (0.5 = centre)
-    const WORD_TOP_PADDING   = 0;     // px — extra downward nudge (positive = down)
+    const ARABIC_FONT_SIZE        = 100;  // px — desktop SVG Arabic text
+    const ARABIC_FONT_SIZE_MOBILE = 42;   // px — mobile full-verse SVG
+    const ARABIC_FONT_WEIGHT      = 700;  // 400 = regular, 700 = bold
+    const ARABIC_GAP              = 18;   // px — breathing room between glyph and prose
+    const WORD_VERTICAL_POS       = 0.5;  // 0–1 — vertical position within scroll area (0.5 = centre)
+    const WORD_TOP_PADDING        = 0;    // px — extra downward nudge (positive = down)
 
     const words = [
       {
@@ -497,19 +522,143 @@
       relayout();
     }
 
+    // ── mobile: single column, full verse, all text continuous ──
+    function initMobile() {
+      const mobileView   = document.getElementById('mobile-view');
+      const mobileScroll = document.getElementById('mobile-scroll');
+      const mobileCanvas = document.getElementById('mobile-canvas');
+
+      const W    = mobileScroll.clientWidth;
+      const colW = W - COL_PAD * 2;
+      const GAP  = ARABIC_GAP;
+
+      // Concatenate all three tafsir texts into one flow
+      const fullText = words.map(w => w.text).join(' ');
+      const prepared = prepareWithSegments(fullText, FONT);
+      const pool     = [];
+
+      mobileCanvas.style.width = W + 'px';
+
+      // Full verse arabic text for the SVG obstacle
+      const arabicText = words.flatMap(w => Array.isArray(w.arabic) ? w.arabic : [w.arabic]).join(' ');
+      const shape      = analyzeTextShape(arabicText, ARABIC_FONT_SIZE_MOBILE);
+
+      // Build the full-verse SVG
+      const svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('class', 'medallion');
+      const PAD_X = 16, PAD_Y = 10;
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('font-family',       'Amiri, serif');
+      t.setAttribute('font-size',         ARABIC_FONT_SIZE_MOBILE);
+      t.setAttribute('font-weight',       ARABIC_FONT_WEIGHT);
+      t.setAttribute('text-anchor',       'middle');
+      t.setAttribute('dominant-baseline', 'middle');
+      t.setAttribute('direction',         'rtl');
+      t.textContent = arabicText;
+      svg.appendChild(t);
+      svg.style.position   = 'absolute';
+      svg.style.visibility = 'hidden';
+      document.body.appendChild(svg);
+      const bbox   = t.getBBox();
+      const svgW   = bbox.width  + PAD_X * 2;
+      const svgH   = bbox.height + PAD_Y * 2;
+      svg.setAttribute('width',   svgW);
+      svg.setAttribute('height',  svgH);
+      svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+      t.setAttribute('x', svgW / 2);
+      t.setAttribute('y', svgH / 2);
+      document.body.removeChild(svg);
+      svg.style.visibility = '';
+
+      // Position SVG in the centre of the mobile view (anchored to mobileView)
+      const orbScreenY = mobileScroll.clientHeight * WORD_VERTICAL_POS + WORD_TOP_PADDING;
+      svg.style.left = `${W / 2 - svgW / 2}px`;
+      svg.style.top  = `${orbScreenY - svgH / 2}px`;
+      mobileView.appendChild(svg);
+
+      const shapeLeft = W / 2 - shape.w / 2;
+
+      function relayout() {
+        const scrollTop  = mobileScroll.scrollTop;
+        const orbCanvasY = mobileScroll.clientHeight * WORD_VERTICAL_POS + WORD_TOP_PADDING + scrollTop;
+        const shapeTop   = orbCanvasY - shape.h / 2;
+        const shapeBot   = shapeTop + shape.h;
+
+        let cur  = { segmentIndex: 0, graphemeIndex: 0 };
+        let y    = TOP_PAD;
+        let pi   = 0;
+        let done = false;
+
+        for (let j = 0; j < 8000 && !done; j++) {
+          if (y + LINE_H > shapeTop && y < shapeBot) {
+            const bandTop = y - shapeTop;
+            const bandBot = bandTop + LINE_H;
+            let minL = Infinity, maxR = -Infinity;
+            for (const row of shape.rows) {
+              if (row.y >= bandTop && row.y < bandBot) {
+                if (row.l < minL) minL = row.l;
+                if (row.r > maxR) maxR = row.r;
+              }
+            }
+            if (maxR > -Infinity) {
+              const obstL  = shapeLeft + minL - GAP;
+              const obstR  = shapeLeft + maxR + GAP;
+              const slotAw = obstL - COL_PAD;
+              if (slotAw >= MIN_SLOT_W) {
+                const line = layoutNextLine(prepared, cur, slotAw);
+                if (line) { const el = poolEl(pool, pi++, mobileCanvas); el.style.cssText = `top:${y}px;left:${COL_PAD}px;width:${slotAw}px;`; el.textContent = line.text; cur = line.end; }
+                else done = true;
+              }
+              if (!done) {
+                const slotBw = COL_PAD + colW - obstR;
+                if (slotBw >= MIN_SLOT_W) {
+                  const line = layoutNextLine(prepared, cur, slotBw);
+                  if (line) { const el = poolEl(pool, pi++, mobileCanvas); el.style.cssText = `top:${y}px;left:${obstR}px;width:${slotBw}px;`; el.textContent = line.text; cur = line.end; }
+                  else done = true;
+                }
+              }
+            } else {
+              const line = layoutNextLine(prepared, cur, colW);
+              if (!line) { done = true; break; }
+              const el = poolEl(pool, pi++, mobileCanvas);
+              el.style.cssText = `top:${y}px;left:${COL_PAD}px;width:${colW}px;`;
+              el.textContent = line.text; cur = line.end;
+            }
+          } else {
+            const line = layoutNextLine(prepared, cur, colW);
+            if (!line) { done = true; break; }
+            const el = poolEl(pool, pi++, mobileCanvas);
+            el.style.cssText = `top:${y}px;left:${COL_PAD}px;width:${colW}px;`;
+            el.textContent = line.text; cur = line.end;
+          }
+          y += LINE_H;
+        }
+
+        for (let i = pi; i < pool.length; i++) pool[i].style.display = 'none';
+        mobileCanvas.style.height = (y + COL_PAD) + 'px';
+      }
+
+      mobileScroll.addEventListener('scroll', relayout, { passive: true });
+      relayout();
+    }
+
     // ── init ──────────────────────────────────────────────────
     async function init() {
       await document.fonts.ready;
-      words.forEach((word, i) => {
-        document.getElementById(`header-${i}`).textContent = word.label;
-        setupColumn(
-          document.getElementById(`col-${i}`),
-          document.getElementById(`scroll-${i}`),
-          document.getElementById(`canvas-${i}`),
-          word,
-          i,
-        );
-      });
+      if (window.matchMedia('(max-width: 768px)').matches) {
+        initMobile();
+      } else {
+        words.forEach((word, i) => {
+          document.getElementById(`header-${i}`).textContent = word.label;
+          setupColumn(
+            document.getElementById(`col-${i}`),
+            document.getElementById(`scroll-${i}`),
+            document.getElementById(`canvas-${i}`),
+            word,
+            i,
+          );
+        });
+      }
     }
 
     init();
