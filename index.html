@@ -278,31 +278,67 @@
     const columnsArea = document.getElementById('columns-area');
 
     function createWordSVG(word) {
-      const svg = document.createElementNS(NS, 'svg');
-      svg.setAttribute('width',   SVG_W);
-      svg.setAttribute('height',  SVG_H);
-      svg.setAttribute('viewBox', `0 0 ${SVG_W} ${SVG_H}`);
-      svg.setAttribute('class',   'medallion');
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'medallion');
 
-      const FS = 30;
+  const FS = 30;
+  const PAD_X = 16; // horizontal padding
+  const PAD_Y = 10; // vertical padding
+  const RADIUS = 12;
 
-      const t = document.createElementNS(NS, 'text');
-      t.setAttribute('x', SVG_W / 2);
-      t.setAttribute('y', SVG_H / 2);
-      t.setAttribute('text-anchor', 'middle');
-      t.setAttribute('dominant-baseline', 'middle'); // ✅ vertical centering
-      t.setAttribute('font-family', 'Amiri, serif');
-      t.setAttribute('font-size', FS);
-      t.setAttribute('fill', '#5c4a2a');
+  // Create text first (so we can measure it)
+  const t = document.createElementNS(NS, 'text');
+  t.setAttribute('font-family', 'Amiri, serif');
+  t.setAttribute('font-size', FS);
+  t.setAttribute('text-anchor', 'middle');
+  t.setAttribute('dominant-baseline', 'middle');
+  t.setAttribute('direction', 'rtl');
+  t.textContent = Array.isArray(word.arabic)
+    ? word.arabic.join(' ')
+    : word.arabic;
 
-      // If it's an array, join it into one line
-      t.textContent = Array.isArray(word.arabic)
-        ? word.arabic.join(' ')
-        : word.arabic;
+  svg.appendChild(t);
 
-      svg.appendChild(t);
-      return svg;
-    }
+  // TEMP: add to DOM to measure
+  svg.style.position = 'absolute';
+  svg.style.visibility = 'hidden';
+  document.body.appendChild(svg);
+
+  const bbox = t.getBBox();
+
+  // Calculate final size
+  const width  = bbox.width + PAD_X * 2;
+  const height = bbox.height + PAD_Y * 2;
+
+  svg.setAttribute('width', width);
+  svg.setAttribute('height', height);
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+  // Center text
+  t.setAttribute('x', width / 2);
+  t.setAttribute('y', height / 2);
+
+  // Create rounded rectangle background
+  const rect = document.createElementNS(NS, 'rect');
+  rect.setAttribute('x', 0);
+  rect.setAttribute('y', 0);
+  rect.setAttribute('width', width);
+  rect.setAttribute('height', height);
+  rect.setAttribute('rx', RADIUS);
+  rect.setAttribute('ry', RADIUS);
+  rect.setAttribute('fill', '#f5f0e6'); // background
+  rect.setAttribute('stroke', '#5c4a2a');
+  rect.setAttribute('stroke-width', '1');
+
+  // Put rect behind text
+  svg.insertBefore(rect, t);
+
+  // Cleanup temp mount
+  document.body.removeChild(svg);
+  svg.style.visibility = '';
+
+  return svg;
+}
 
     // ── pool helper ───────────────────────────────────────────
     function poolEl(pool, i, parent) {
