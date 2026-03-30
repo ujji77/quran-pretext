@@ -356,7 +356,21 @@
 
       document.body.removeChild(svg);
       svg.style.visibility = '';
+      styleArabicSVG(svg, t);
       return svg;
+    }
+
+    // ── Arabic SVG visual style ───────────────────────────────
+    // Gold fill + layered filter: warm ambient glow + directional depth shadow.
+    // Feels like illuminated gold leaf on vellum.
+    function styleArabicSVG(svg, t) {
+      t.setAttribute('fill', '#873d0f');
+      t.setAttribute('stroke', '#7a4e0a');
+      t.setAttribute('stroke-width', '1');
+      t.setAttribute('paint-order', 'stroke fill');
+      // svg.style.filter =
+      //   'drop-shadow(0 0 14px rgba(195,135,30,0.55)) ' +
+      //   'drop-shadow(0 2px 5px rgba(70,35,0,0.45))';
     }
 
     // ── pixel-level glyph analysis ───────────────────────────
@@ -569,6 +583,7 @@
       t.setAttribute('y', svgH / 2);
       document.body.removeChild(svg);
       svg.style.visibility = '';
+      styleArabicSVG(svg, t);
 
       // Position SVG in the centre of the mobile view (anchored to mobileView)
       const orbScreenY = mobileScroll.clientHeight * WORD_VERTICAL_POS + WORD_TOP_PADDING;
