@@ -134,14 +134,23 @@
     /* ── footer ──────────────────────────────────── */
     footer {
       flex: none;
-      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
       padding: 10px 32px 11px;
       border-top: 1px solid var(--rule);
       font-size: 10.5px;
       letter-spacing: .12em;
       text-transform: uppercase;
-      color: var(--rule);
+      color: var(--soft);
     }
+    footer a {
+      color: var(--gold);
+      text-decoration: none;
+    }
+    footer a:hover { color: var(--active); }
+    .footer-github { display: flex; align-items: center; }
   </style>
 </head>
 <body>
@@ -170,7 +179,15 @@
     </div>
   </div>
 
-  <footer>Tafsir Ibn Kathir (Abridged) &middot; Al-Fatihah 1:2 &middot; quran.gtaf.org</footer>
+  <footer>
+    <a href="https://quran.gtaf.org/1/2/tafsir" target="_blank" rel="noreferrer">Tafsir Ibn Kathir &middot; Al-Fatihah 1:2</a>
+    <span>quran.gtaf.org</span>
+    <a class="footer-github" href="https://github.com/ujji77/quran-pretext" target="_blank" rel="noreferrer" title="GitHub">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+      </svg>
+    </a>
+  </footer>
 
   <script type="module">
     import { prepareWithSegments, layoutNextLine } from 'https://esm.sh/@chenglou/pretext@0.0.3';
@@ -182,11 +199,11 @@
     const MIN_SLOT_W = 36;
 
     // ── Arabic word display ───────────────────────────────────
-    const ARABIC_FONT_SIZE   = 90;    // px — size of the SVG Arabic text
+    const ARABIC_FONT_SIZE   = 100;    // px — size of the SVG Arabic text
     const ARABIC_FONT_WEIGHT = 700;   // 400 = regular, 700 = bold
     const ARABIC_GAP         = 18;    // px — breathing room between glyph and prose
-    const WORD_VERTICAL_POS  = 0.44;  // 0–1 — vertical position within the scroll area (0 = top, 1 = bottom)
-    const WORD_TOP_PADDING   = 40;    // px — extra downward nudge on top of WORD_VERTICAL_POS
+    const WORD_VERTICAL_POS  = 0.5;   // 0–1 — vertical position within the column scroll area (0.5 = centre)
+    const WORD_TOP_PADDING   = 0;     // px — extra downward nudge (positive = down)
 
     const words = [
       {
@@ -384,7 +401,10 @@
       const svgW = parseFloat(svg.getAttribute('width'));
       const svgH = parseFloat(svg.getAttribute('height'));
 
-      const orbScreenY = colScroll.clientHeight * WORD_VERTICAL_POS + WORD_TOP_PADDING;
+      // Centre within the column's scroll area, not the full viewport.
+      // scrollTopInArea = distance from columns-area top to col-scroll top.
+      const scrollTopInArea = colScroll.getBoundingClientRect().top - areaRect.top;
+      const orbScreenY = scrollTopInArea + colScroll.clientHeight * WORD_VERTICAL_POS + WORD_TOP_PADDING;
       svg.style.left = `${colRect.left - areaRect.left + W / 2 - svgW / 2}px`;
       svg.style.top  = `${orbScreenY - svgH / 2}px`;
       columnsArea.appendChild(svg);
