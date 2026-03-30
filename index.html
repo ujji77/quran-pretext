@@ -179,11 +179,14 @@
     const LINE_H     = 32;
     const COL_PAD    = 28;
     const TOP_PAD    = 16;
-    const ORB_R      = 72;
-    const ORB_GAP    = 12;
     const MIN_SLOT_W = 36;
-    const SVG_W      = 220;   // word SVG canvas width
-    const SVG_H      = 120;   // word SVG canvas height
+
+    // ── Arabic word display ───────────────────────────────────
+    const ARABIC_FONT_SIZE   = 90;    // px — size of the SVG Arabic text
+    const ARABIC_FONT_WEIGHT = 700;   // 400 = regular, 700 = bold
+    const ARABIC_GAP         = 18;    // px — breathing room between glyph and prose
+    const WORD_VERTICAL_POS  = 0.44;  // 0–1 — vertical position within the scroll area (0 = top, 1 = bottom)
+    const WORD_TOP_PADDING   = 40;    // px — extra downward nudge on top of WORD_VERTICAL_POS
 
     const words = [
       {
@@ -278,67 +281,73 @@
     const columnsArea = document.getElementById('columns-area');
 
     function createWordSVG(word) {
-  const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('class', 'medallion');
+      const svg   = document.createElementNS(NS, 'svg');
+      svg.setAttribute('class', 'medallion');
 
-  const FS = 30;
-  const PAD_X = 16; // horizontal padding
-  const PAD_Y = 10; // vertical padding
-  const RADIUS = 12;
+      const PAD_X = 16;
+      const PAD_Y = 10;
 
-  // Create text first (so we can measure it)
-  const t = document.createElementNS(NS, 'text');
-  t.setAttribute('font-family', 'Amiri, serif');
-  t.setAttribute('font-size', FS);
-  t.setAttribute('text-anchor', 'middle');
-  t.setAttribute('dominant-baseline', 'middle');
-  t.setAttribute('direction', 'rtl');
-  t.textContent = Array.isArray(word.arabic)
-    ? word.arabic.join(' ')
-    : word.arabic;
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('font-family',        'Amiri, serif');
+      t.setAttribute('font-size',          ARABIC_FONT_SIZE);
+      t.setAttribute('font-weight',        ARABIC_FONT_WEIGHT);
+      t.setAttribute('text-anchor',        'middle');
+      t.setAttribute('dominant-baseline',  'middle');
+      t.setAttribute('direction',          'rtl');
+      t.textContent = Array.isArray(word.arabic) ? word.arabic.join(' ') : word.arabic;
 
-  svg.appendChild(t);
+      svg.appendChild(t);
 
-  // TEMP: add to DOM to measure
-  svg.style.position = 'absolute';
-  svg.style.visibility = 'hidden';
-  document.body.appendChild(svg);
+      svg.style.position   = 'absolute';
+      svg.style.visibility = 'hidden';
+      document.body.appendChild(svg);
 
-  const bbox = t.getBBox();
+      const bbox   = t.getBBox();
+      const width  = bbox.width  + PAD_X * 2;
+      const height = bbox.height + PAD_Y * 2;
 
-  // Calculate final size
-  const width  = bbox.width + PAD_X * 2;
-  const height = bbox.height + PAD_Y * 2;
+      svg.setAttribute('width',   width);
+      svg.setAttribute('height',  height);
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      t.setAttribute('x', width  / 2);
+      t.setAttribute('y', height / 2);
 
-  svg.setAttribute('width', width);
-  svg.setAttribute('height', height);
-  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      document.body.removeChild(svg);
+      svg.style.visibility = '';
+      return svg;
+    }
 
-  // Center text
-  t.setAttribute('x', width / 2);
-  t.setAttribute('y', height / 2);
-
-  // Create rounded rectangle background
-  const rect = document.createElementNS(NS, 'rect');
-  rect.setAttribute('x', 0);
-  rect.setAttribute('y', 0);
-  rect.setAttribute('width', width);
-  rect.setAttribute('height', height);
-  rect.setAttribute('rx', RADIUS);
-  rect.setAttribute('ry', RADIUS);
-  rect.setAttribute('fill', '#f5f0e6'); // background
-  rect.setAttribute('stroke', '#5c4a2a');
-  rect.setAttribute('stroke-width', '1');
-
-  // Put rect behind text
-  svg.insertBefore(rect, t);
-
-  // Cleanup temp mount
-  document.body.removeChild(svg);
-  svg.style.visibility = '';
-
-  return svg;
-}
+    // ── pixel-level glyph analysis ───────────────────────────
+    // Returns per-row ink extents of the Arabic text rendered at `fontSize`.
+    // rows[i] = { y (CSS px from top of canvas), l, r (CSS px, left/right ink edge) }
+    function analyzeTextShape(text, fontSize) {
+      const SCALE = 2;
+      const oc  = document.createElement('canvas');
+      const ctx = oc.getContext('2d');
+      ctx.font  = `${fontSize * SCALE}px Amiri, serif`;
+      const m   = ctx.measureText(text);
+      const PAD = Math.ceil(16 * SCALE);
+      oc.width  = Math.ceil(m.width) + PAD * 2;
+      oc.height = Math.ceil(fontSize * SCALE * 1.9) + PAD * 2;
+      ctx.font         = `${fontSize * SCALE}px Amiri, serif`;
+      ctx.fillStyle    = '#000';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, oc.width / 2, oc.height / 2);
+      const pix  = ctx.getImageData(0, 0, oc.width, oc.height).data;
+      const rows = [];
+      for (let py = 0; py < oc.height; py++) {
+        let l = oc.width, r = -1;
+        for (let px = 0; px < oc.width; px++) {
+          if (pix[(py * oc.width + px) * 4 + 3] > 8) {
+            if (px < l) l = px;
+            if (px > r) r = px;
+          }
+        }
+        if (r >= 0) rows.push({ y: py / SCALE, l: l / SCALE, r: r / SCALE });
+      }
+      return { rows, w: oc.width / SCALE, h: oc.height / SCALE };
+    }
 
     // ── pool helper ───────────────────────────────────────────
     function poolEl(pool, i, parent) {
@@ -354,66 +363,101 @@
 
     // ── set up one column ─────────────────────────────────────
     function setupColumn(colOuter, colScroll, canvas, word, idx) {
-      const W          = colOuter.clientWidth;
-      const colW       = W - COL_PAD * 2;
-      const orbCX      = W / 2;
-      const orbScreenY = colScroll.clientHeight * 0.44;
+      const W    = colOuter.clientWidth;
+      const colW = W - COL_PAD * 2;
+      const GAP  = ARABIC_GAP;
 
       const prepared = prepareWithSegments(word.text, FONT);
       const pool     = [];
 
       canvas.style.width = W + 'px';
 
+      // Analyse the actual glyph pixel extents once (at the same size as the SVG)
+      const arabicText = Array.isArray(word.arabic) ? word.arabic.join(' ') : word.arabic;
+      const shape      = analyzeTextShape(arabicText, ARABIC_FONT_SIZE);
+
       // Word SVG — appended to columns-area (non-scrolling overlay)
       const areaRect = columnsArea.getBoundingClientRect();
       const colRect  = colOuter.getBoundingClientRect();
       const svg      = createWordSVG(word);
-      svg.style.left = `${colRect.left - areaRect.left + W / 2 - SVG_W / 2}px`;
-      svg.style.top  = `${orbScreenY - SVG_H / 2}px`;
+
+      const svgW = parseFloat(svg.getAttribute('width'));
+      const svgH = parseFloat(svg.getAttribute('height'));
+
+      const orbScreenY = colScroll.clientHeight * WORD_VERTICAL_POS + WORD_TOP_PADDING;
+      svg.style.left = `${colRect.left - areaRect.left + W / 2 - svgW / 2}px`;
+      svg.style.top  = `${orbScreenY - svgH / 2}px`;
       columnsArea.appendChild(svg);
 
-      // Recompute layout so gap always tracks the fixed word SVG
+      // The shape canvas is the same width as the SVG canvas (both sized to bbox + padding).
+      // We align them: shapeLeft = column-center minus half the shape canvas width.
+      const shapeLeft = W / 2 - shape.w / 2;
+
       function relayout() {
         const scrollTop  = colScroll.scrollTop;
         const orbCanvasY = orbScreenY + scrollTop;
 
+        // Vertical extent of the shape canvas in column-canvas coordinates
+        const shapeTop = orbCanvasY - shape.h / 2;
+        const shapeBot = shapeTop + shape.h;
+
         let cur  = { segmentIndex: 0, graphemeIndex: 0 };
         let y    = TOP_PAD;
-        let done = false;
         let pi   = 0;
+        let done = false;
 
         for (let j = 0; j < 5000 && !done; j++) {
-          const dy = (y + LINE_H / 2) - orbCanvasY;
-
-          if (Math.abs(dy) < ORB_R + ORB_GAP) {
-            const chord = Math.sqrt((ORB_R + ORB_GAP) ** 2 - dy * dy);
-            const bL    = orbCX - chord;
-            const bR    = orbCX + chord;
-
-            const aw = bL - COL_PAD;
-            if (aw >= MIN_SLOT_W) {
-              const line = layoutNextLine(prepared, cur, aw);
-              if (line) {
-                const el = poolEl(pool, pi++, canvas);
-                el.style.cssText = `top:${y}px;left:${COL_PAD}px;width:${aw}px;`;
-                el.textContent   = line.text;
-                cur = line.end;
-              } else done = true;
+          if (y + LINE_H > shapeTop && y < shapeBot) {
+            // ── scan shape rows for ink in this line band ──────────
+            const bandTop = y - shapeTop;
+            const bandBot = bandTop + LINE_H;
+            let minL = Infinity, maxR = -Infinity;
+            for (const row of shape.rows) {
+              if (row.y >= bandTop && row.y < bandBot) {
+                if (row.l < minL) minL = row.l;
+                if (row.r > maxR) maxR = row.r;
+              }
             }
 
-            if (!done) {
-              const bw = COL_PAD + colW - bR;
-              if (bw >= MIN_SLOT_W) {
-                const line = layoutNextLine(prepared, cur, bw);
+            if (maxR > -Infinity) {
+              // ink found — carve left and right slots around glyph extents
+              const obstL = shapeLeft + minL - GAP;
+              const obstR = shapeLeft + maxR + GAP;
+
+              const slotAw = obstL - COL_PAD;
+              if (slotAw >= MIN_SLOT_W) {
+                const line = layoutNextLine(prepared, cur, slotAw);
                 if (line) {
                   const el = poolEl(pool, pi++, canvas);
-                  el.style.cssText = `top:${y}px;left:${bR}px;width:${bw}px;`;
+                  el.style.cssText = `top:${y}px;left:${COL_PAD}px;width:${slotAw}px;`;
                   el.textContent   = line.text;
                   cur = line.end;
                 } else done = true;
               }
+
+              if (!done) {
+                const slotBw = COL_PAD + colW - obstR;
+                if (slotBw >= MIN_SLOT_W) {
+                  const line = layoutNextLine(prepared, cur, slotBw);
+                  if (line) {
+                    const el = poolEl(pool, pi++, canvas);
+                    el.style.cssText = `top:${y}px;left:${obstR}px;width:${slotBw}px;`;
+                    el.textContent   = line.text;
+                    cur = line.end;
+                  } else done = true;
+                }
+              }
+            } else {
+              // band is within shape vertical extent but no ink — full-width line
+              const line = layoutNextLine(prepared, cur, colW);
+              if (!line) { done = true; break; }
+              const el = poolEl(pool, pi++, canvas);
+              el.style.cssText = `top:${y}px;left:${COL_PAD}px;width:${colW}px;`;
+              el.textContent   = line.text;
+              cur = line.end;
             }
           } else {
+            // ── full-width line ─────────────────────────────────────
             const line = layoutNextLine(prepared, cur, colW);
             if (!line) { done = true; break; }
             const el = poolEl(pool, pi++, canvas);
